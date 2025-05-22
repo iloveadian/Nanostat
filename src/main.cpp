@@ -44,6 +44,7 @@ enum Sweep_Mode_Type
 {
   dormant,  // not sweeping
   NPV,      // normal pulsed voltametry
+  DPV,      // differential pulsed voltametry
   CV,       // cyclic voltametry
   SQV,      // square wave voltametry
   CA,       // chronoamperometry
@@ -83,6 +84,18 @@ int sweep_param_pulseAmp_NPV = 20;
 int sweep_param_width_NPV = 50;
 int sweep_param_period_NPV = 200;
 int sweep_param_quietTime_NPV = 1000;
+
+// DPV sweep parameters:
+// runDPV(sweep_param_lmpGain, sweep_param_startV_DPV, sweep_param_endV_DPV,
+//            sweep_param_pulseAmp_DPV, sweep_param_pulseStep_DPV, sweep_param_period_DPV,
+//            sweep_param_quietTime_DPV, uint8_t range, sweep_param_setToZero)
+int sweep_param_startV_DPV = -200; //   (mV)  voltage to start the scan
+int sweep_param_endV_DPV = 200;    //     (mV)  voltage to stop the scan
+int sweep_param_pulseAmp_DPV = 20;
+int sweep_param_pulseStep_DPV = 5; // (mV)      how much to increment the voltage by  
+int sweep_param_width_DPV = 50;
+int sweep_param_period_DPV = 200;
+int sweep_param_quietTime_DPV = 1000;
 
 // SWV sweep parameters:
 // runSWV(sweep_param_lmpGain, sweep_param_startV_SWV, sweep_param_endV_SWV,
@@ -2421,6 +2434,201 @@ void runNPV(uint8_t lmpGain, int16_t startV, int16_t endV,
     setOutputsToZero();
 }
 
+void runDPVForward(int16_t startV, int16_t endV, int8_t pulseAmp, int8_t pulseStep, uint32_t pulse_width, uint32_t off_time)
+{
+
+//@param      startV:       voltage to start the scan
+//@param      endV:         voltage to stop the scan
+//@param      pulseAmp:     amplitude of square wave
+//@param      pulseStep:     amplitude of step potential
+//@param      pulse_width:  the pulse-width of the excitation voltage
+//@param      off_time:
+//
+//Runs DPV in the forward (oxidation) direction. The bias potential
+//is swept from a more negative voltage to a more positive voltage.
+
+float i_forward = 0;
+float i_backward = 0;
+
+for (int16_t j = startV; j <= endV; j += pulseAmp)
+{
+i_forward = biasAndSample(j, pulse_width);
+if (userpause) //will hold the code here until a character is sent over the Serial port
+{
+while (!Serial.available())
+;
+Serial.read();
+}
+int16_t c = j - pulseStep;
+i_backward = biasAndSample(c, off_time); // xxx comment out to do only forward bias
+saveVoltammogram(j, i_forward - i_backward, false); // this will print voltage, current
+if (print_output_to_serial)
+{
+Serial.println("EOL");
+}
+// Serial.println();
+// if (userpause) //will hold the code here until a character is sent over the Serial port
+// {
+//   while (!Serial.available())
+//     ;
+//   Serial.read();
+// }
+}
+}
+
+void runDPVBackward(int16_t startV, int16_t endV, int8_t pulseAmp, int8_t pulseStep,
+   uint32_t pulse_width, uint32_t off_time)
+{
+//@param      startV:       voltage to start the scan
+//@param      endV:         voltage to stop the scan
+//@param      pulseAmp:     amplitude of square wave
+//@param      pulseStep:     amplitude of step potential
+//@param      pulse_width:  the pulse-width of the excitation voltage
+//@param      off_time:
+//
+//Runs DPV in the reverse (reduction) direction. The bias potential
+//is swept from a more positivie voltage to a more negative voltage.
+
+float i_forward = 0;
+float i_backward = 0;
+
+for (int16_t j = startV; j >= endV; j -= pulseAmp)
+{
+i_forward = biasAndSample(j, pulse_width);
+//will hold the code here until a character is sent over the Serial port
+//this ensures the experiment will only run when initiated
+while (!Serial.available())
+;
+Serial.read();
+int16_t c =j-pulseStep;
+i_backward = biasAndSample(c, off_time); // xxx comment out to do only forward bias
+saveVoltammogram(j, i_forward - i_backward, false); // this will print voltage, current
+
+//will hold the code here until a character is sent over the Serial port
+//this ensures the experiment will only run when initiated
+while (!Serial.available())
+;
+Serial.read();
+saveVoltammogram(j, i_forward - i_backward, true); // this will print voltage, currnt
+// Serial.println();
+}
+}
+
+void runDPV(uint8_t lmpGain, int16_t startV, int16_t endV,
+int8_t pulseAmp,int8_t pulseStep, uint32_t pulse_width, uint32_t pulse_period,
+uint32_t quietTime, uint8_t range, bool setToZero)
+{
+//@param      lmpGain:      gain setting for LMP91000
+//@param      startV:       voltage to start the scan
+//@param      endV:         voltage to stop the scan
+//@param      pulseAmp:     amplitude of square wave
+//@param      pulseStep:     amplitude of step potential
+//@param      pulse_period: the  of the excitation voltage
+//@param      pulse_width:  the pulse-width of the excitation voltage
+//@param      quietTime:    initial wait time before the first pulse
+//@param      range:        the expected range of the measured current
+//@param      setToZero:    Boolean determining whether the bias potential of
+//                          the electrochemical cell should be set to 0 at the
+//                          end of the experiment.
+//
+//Runs the electrochemical technique, Normal Pulse Voltammetry. In this
+//technique the electrochemical cell is biased at increasing superimposed
+//voltages. The current is sampled at the end of each step potential. The
+//potential is returned to the startV at the end of each pulse period.
+//https://www.basinc.com/manuals/EC_epsilon/techniques/Pulse/pulse#normal
+//Reset Arrays
+reset_Voltammogram_arrays(); // sets volt[i], amps[i],time_Voltammaogram[i]=0 all
+
+arr_cur_index = 0;
+number_of_valid_points_in_volts_amps_array = 0;
+
+if (pulse_width > pulse_period)
+{
+uint32_t temp = pulse_width;
+pulse_width = pulse_period;
+pulse_period = temp;
+}
+
+if (print_output_to_serial)
+{
+
+//Print column headers
+//  String current = "";
+//  if(range == 12) current = "Current(pA)";
+//  else if(range == 9) current = "Current(nA)";
+//  else if(range == 6) current = "Current(uA)";
+//  else if(range == 3) current = "Current(mA)";
+//  else current = "SOME ERROR";
+
+// TIA_BIAS[bias_setting]
+// dacVout*TIA_BIAS[bias_setting] is the exact voltage we will get
+
+Serial.println("Column header meanings:");
+Serial.println("FORWARD BIAS:");
+Serial.println("T = time in ms");
+Serial.println("Vc = desired cell voltage in mV (internal variable name = voltage)");
+Serial.println("Vset = set cell voltage in mV (internal variable name = vset = dacVout * TIA_BIAS[bias_setting])");
+Serial.println("div = percentage scale (internal variable name = TIA_BIAS[bias_setting])");
+Serial.println("Vdac = ESP32 dac voltage in mV (internal variable name = dacVout)");
+Serial.println("adc_bits = TIA output in adc_bits;");
+Serial.println("(V1) Vout = TIA output in mV (internal variable name = v1 = pStat.getVoltage(analogRead(LMP), opVolt, adcBits);");
+Serial.println("(V2) Vc1 = internal zero in mV also C1 (internal variable name = v2 = dacVout * .5)");
+Serial.println("i_f = forward current in uA (internal variable name = current = (((v1 - v2) / 1000) / TIA_GAIN[LMPgain - 1]) * pow(10, 6); //scales to uA)");
+
+Serial.println("REVERSE BIAS:");
+Serial.println("T = time in ms");
+Serial.println("Vc = desired cell voltage in mV (internal variable name = voltage)");
+Serial.println("Vset = set cell voltage in mV (internal variable name = vset = dacVout * TIA_BIAS[bias_setting])");
+Serial.println("div = percentage scale (internal variable name = TIA_BIAS[bias_setting])");
+Serial.println("Vdac = ESP32 dac voltage in mV (internal variable name = dacVout)");
+Serial.println("Vout = TIA output in mV (internal variable name = v1 = pStat.getVoltage(analogRead(LMP), opVolt, adcBits);");
+Serial.println("Vc1 = internal zero in mV also C1 (internal variable name = v2 = dacVout * .5)");
+Serial.println("i_R = reverse current in uA (internal variable name = current = (((v1 - v2) / 1000) / TIA_GAIN[LMPgain - 1]) * pow(10, 6); //scales to uA)");
+
+Serial.println("RESPONSE:");
+Serial.println("Vc = desired cell voltage in mV (internal variable name = voltage FORWARD, should be FORWARD-REVERSE...)");
+Serial.println("I = i_f - i_R in uA (internal variable name = i_forward - i_backward)");
+// Serial.println("xyz = xyz in xyz (internal variable name = xyz)");
+// Serial.println("xyz = xyz in xyz (internal variable name = v)");
+
+Serial.println("T\tVc\tVset\tdiv\tVdac\tadcbits\tVout\tVc1\ti_f\tT\tVc\tVset\tdiv\tVdac\tadcbits\tVout\tVc1\ti_R\tV\tI\tT");
+
+// Serial.println("T,Vc,Vset,div,Vdac,adcbits,Vout,Vc1,i_f,T,Vc,Vset,div,Vdac,adcbits,Vout,Vc1,i_R,V,I,T");
+
+//    Serial.println("T\tVc\tVset\tdiv\tVdac\tVout\tVc1\ti_f\tT\tVc\tVset\tdiv\tVdac\tVout\tVc1\ti_R\tVc\tI");
+//  Serial.println("T\tVc\tVdac\tVout\tVc1\ti_f\tT\tVc\tZ\tVout\ti_R\tLMP\tI");
+//  Serial.println("T\tVc\tVout\tVc1\ti_f\tT\tVc\tZ\tVout\ti_R\tLMP\tI");
+//  Serial.println("T\t\tVc\tVout\tVc1\ti_f\tT\tVc\tZ\tVout\ti_R\tLMP\tI");
+//  Serial.println("T(ms)\tVcell(mV)\tZero(mV)\tLMP\ti_f\tT(ms)\tVcell(mV)\tZero(mV)\tLMP\ti_R\tV(mV)\tI");
+//  Serial.println(F("Time(ms)	Cell set voltage (mV)	Zero(mV)	dacVout	TIA_BIAS[bias_setting],LMP i.e. Vout (mV),VC1(mV),i_forward,Time(ms),Cell set voltage (mV),Zero(mV),dacVout,TIA_BIAS[bias_setting],LMP i.e. Vout (mV),VC1(mV),i_backward,Voltage(mV),Current"));
+//  Serial.println(F("T(ms),Vcell(mV),Zero(mV),dacVout,TIA_BIAS,Vout(mV),VC1(mV),i_f,Time(ms),Cell set voltage (mV),Zero(mV),dacVout,TIA_BIAS[bias_setting],LMP i.e. Vout (mV),VC1(mV),i_backward,Voltage(mV),Current"));
+}
+
+initLMP(lmpGain);
+pulseAmp = abs(pulseAmp);
+uint32_t off_time = pulse_period - pulse_width;
+
+setLMPBias(startV); // -200 mV to start
+setVoltage(startV); // -200 mV to start
+// Serial.println();
+
+unsigned long time1 = millis();
+while (millis() - time1 < quietTime)
+;
+
+if (startV < endV)
+{
+
+runDPVForward(startV, endV, pulseAmp, pulseStep, pulse_width, off_time);
+}
+else
+runDPVBackward(startV, endV, pulseAmp, pulseStep, pulse_width, off_time);
+
+arr_cur_index = 0;
+if (setToZero)
+setOutputsToZero();
+}
+
 //@param      cycles:     number of times to run the scan
 //@param      startV:     voltage to start the scan
 //@param      endV:       voltage to stop the scan
@@ -2808,73 +3016,6 @@ void runSWV(uint8_t lmpGain, int16_t startV, int16_t endV,
     setOutputsToZero();
 }
 
-void runDPVForward(int16_t startV, int16_t endV, int8_t pulseAmp,
-                   int8_t stepV, uint32_t pulse_width, uint32_t off_time)
-{
-  float i_forward = 0;
-  float i_backward = 0;
-
-  for (int16_t j = startV; j <= endV; j += stepV)
-  {
-    //baseline
-    i_backward = biasAndSample(j, off_time);
-
-    //pulse
-    i_forward = biasAndSample(j + pulseAmp, pulse_width);
-    number_of_valid_points_in_volts_amps_array++;
-
-    saveVoltammogram(j, i_forward - i_backward, false);
-    // Serial.println();
-  }
-}
-
-void runDPVBackward(int16_t startV, int16_t endV, int8_t pulseAmp,
-                    int8_t stepV, uint32_t pulse_width, uint32_t off_time)
-{
-  float i_forward = 0;
-  float i_backward = 0;
-
-  for (int16_t j = startV; j >= endV; j -= stepV)
-  {
-    //baseline
-    i_backward = biasAndSample(j, off_time);
-
-    //pulse
-    i_forward = biasAndSample(j + pulseAmp, pulse_width);
-    number_of_valid_points_in_volts_amps_array++;
-
-    saveVoltammogram(j, i_forward - i_backward, false);
-    // Serial.println();
-  }
-}
-
-void runDPV(uint8_t lmpGain, int16_t startV, int16_t endV,
-            int8_t pulseAmp, int8_t stepV, uint32_t pulse_period,
-            uint32_t pulse_width, bool setToZero)
-{
-  //Serial.println("Time(ms),Zero(mV),LMP,Voltage(mV)," + current);
-  if (print_output_to_serial)
-  {
-    Serial.println(F("Time(ms),Zero(mV),LMP,Voltage(mV),Current"));
-  }
-
-  initLMP(lmpGain);
-  stepV = abs(stepV);
-  pulseAmp = abs(pulseAmp);
-  uint32_t off_time = pulse_period - pulse_width;
-
-  //Reset Arrays
-  reset_Voltammogram_arrays(); // sets volt[i], amps[i],time_Voltammaogram[i]=0 all
-
-  if (startV < endV)
-    runDPVForward(startV, endV, pulseAmp, stepV, pulse_width, off_time);
-  else
-    runDPVBackward(startV, endV, pulseAmp, stepV, pulse_width, off_time);
-
-  arr_cur_index = 0;
-  if (setToZero)
-    setOutputsToZero();
-}
 
 //void runAmp()
 //
@@ -3089,6 +3230,25 @@ void runNPVandPrintToSerial()
   }
 }
 
+void runDPVandPrintToSerial()
+// runDPVandPrintToSerial
+{
+
+  //##############################NORMAL PULSE VOLTAMMETRY##############################
+  LMPgainGLOBAL = 7;
+  runDPV(LMPgainGLOBAL, -200, 500, 10,5, 50, 200, 500, 6, true);
+  // Run Pulse Voltammetry with gain 350000, -200 to + 500 mV, 10 mV step, 50 microsecond width,
+  //  200 microsecond period, 500 microsecond quiet time, range micro amps) // micro or milli???
+
+  Serial.println(F("Voltage,Current")); // the final array
+  for (uint16_t i = 0; i < arr_samples; i++)
+  {
+    Serial.print(volts[i]);
+    Serial.print(F("\t"));
+    Serial.println(amps[i]);
+  }
+}
+
 void runCVandPrintToSerial()
 // runCVandPrintToSerial
 {
@@ -3228,6 +3388,43 @@ void set_sweep_parameters_from_form_input(String form_id, String form_value)
   {
     sweep_param_quietTime_NPV = form_value.toInt();
   }
+
+
+  else if (form_id == "sweep_param_startV_DPV")
+  {
+    sweep_param_startV_DPV = form_value.toInt();
+  }
+
+  else if (form_id == "sweep_param_endV_DPV")
+  {
+    sweep_param_endV_DPV = form_value.toInt();
+  }
+
+  else if (form_id == "sweep_param_pulseAmp_DPV")
+  {
+    sweep_param_pulseAmp_DPV = form_value.toInt();
+  }
+  else if (form_id == "sweep_param_pulseStep_DPV")
+  {
+    sweep_param_pulseStep_DPV = form_value.toInt();
+  }
+
+  else if (form_id == "sweep_param_width_DPV")
+  {
+    sweep_param_width_DPV = form_value.toInt();
+  }
+
+  else if (form_id == "sweep_param_period_DPV")
+  {
+    sweep_param_period_DPV = form_value.toInt();
+  }
+
+  else if (form_id == "sweep_param_quietTime_DPV")
+  {
+    sweep_param_quietTime_DPV = form_value.toInt();
+  }
+
+
 
   else if (form_id == "sweep_param_startV_SWV")
   {
@@ -3582,6 +3779,20 @@ void configureserver()
                                                       }
                                                       request2->send(200, "OK");
                                                     }));
+
+// Button #11
+  server.addHandler(new AsyncCallbackJsonWebHandler("/button11pressed", [](AsyncWebServerRequest *request2, JsonVariant &json2)
+  {
+    const JsonObject &jsonObj2 = json2.as<JsonObject>();
+    if (jsonObj2["on"])
+    {
+      Serial.println("Button 11 pressed. Running DPV sweep.");
+      // digitalWrite(LEDPIN, HIGH);
+      Sweep_Mode = DPV;
+      send_is_sweeping_status_over_websocket(true);
+    }
+    request2->send(200, "OK");
+  }));
   // Button #3
   server.addHandler(new AsyncCallbackJsonWebHandler("/button3pressed", [](AsyncWebServerRequest *request3, JsonVariant &json3)
                                                     {
@@ -3996,6 +4207,21 @@ void loop()
     Sweep_Mode = dormant;
     send_is_sweeping_status_over_websocket(false);
   }
+
+  else if (Sweep_Mode == DPV)
+  {
+    LMPgainGLOBAL = sweep_param_lmpGain;
+    runDPV(sweep_param_lmpGain, sweep_param_startV_DPV, sweep_param_endV_DPV,
+           sweep_param_pulseAmp_DPV, sweep_param_pulseStep_DPV,sweep_param_width_DPV, sweep_param_period_DPV,
+           sweep_param_quietTime_DPV, 1, sweep_param_setToZero);
+    writeVoltsCurrentArraytoFile();
+    // sendVoltammogramWebsocketJSON();
+    sendVoltammogramWebsocketBIN();
+    Sweep_Mode = dormant;
+    send_is_sweeping_status_over_websocket(false);
+  }
+
+
   else if (Sweep_Mode == CV)
   {
     LMPgainGLOBAL = sweep_param_lmpGain;
