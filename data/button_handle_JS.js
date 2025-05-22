@@ -144,4 +144,18 @@ async function on_Button_10_pressed() {
   }
 }
 
+async function on_Button_11_pressed() {
+  try {
+    const response = await fetch("/button11pressed", {
+      method: "PUT",
+      body: JSON.stringify({ on: temporary_boolean }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+  } catch (error) {
+    alert("Request failed - check the console");
+    console.error(error);
+  }
+}
 
