@@ -1,6 +1,5 @@
 // Javascript code to set up a websocket for the LMP91000 control panel.
 
-
 var m_websocket;
 var m_url_JS = "ws://nanostat.local:81/";
 var button;
@@ -49,9 +48,9 @@ var m_2yaxis_layout = {
         pad: 4
     },
     xaxis: {
-        title: { text: 'Time (ms)' }
+        title: { text: 'Time (s)' }
     },
-    yaxis: { title: 'Current (microA)' },
+    yaxis: { title: 'Current (μA)' },
     yaxis2: {
         title: 'Voltage (mV)',
         titlefont: { color: 'rgb(148, 103, 189)' },
@@ -177,11 +176,15 @@ function onMessage(evt) {
             trace_scope_voltage.x.shift();
             trace_scope_voltage.y.shift();
         }
-        trace_scope_current.x.push(m_time_point);
+        trace_scope_current.x.push(m_time_point/1000);
         trace_scope_current.y.push(m_current_point);
-        trace_scope_voltage.x.push(m_time_point);
+        trace_scope_voltage.x.push(m_time_point/1000);
         trace_scope_voltage.y.push(m_voltage_point);
-        var data_IVvsTime_scope = [trace_scope_current, trace_scope_voltage];
+        var data_IVvsTime_scope = [trace_scope_current];
+        var textboxContent = document.getElementById("dataTextbox").innerHTML;
+        textboxContent += m_time_point/1000 + " ,  " + m_current_point + ", " + m_voltage_point + "\n";
+        document.getElementById("dataTextbox").innerHTML = textboxContent;
+
         Plotly.newPlot('plotly-scope-2yaxis', data_IVvsTime_scope, m_2yaxis_layout, { scrollZoom: true, editable: true, responsive: true });
         total_number_of_points_recieved_so_far++;
         update_average_current();
@@ -311,12 +314,6 @@ function respond_to_max_number_of_points_in_browser_id_change() {
     }
 
 
-
-
-
-
-
-
 }
 
 
@@ -361,8 +358,6 @@ function add_item_to_sum(item) {
 function add_difference_between_item_and_average_squared_to_sum(item) {
     sum += (avg_current-item)*(avg_current-item);
 }
-
-
 
 
 
