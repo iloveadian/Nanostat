@@ -131,7 +131,7 @@ function onClose(evt) {
 }
 
 
-
+var textboxContent2 = "";
 // Called when a message is received from the server
 function onMessage(evt) {
 
@@ -181,9 +181,15 @@ function onMessage(evt) {
         trace_scope_voltage.x.push(m_time_point/1000);
         trace_scope_voltage.y.push(m_voltage_point);
         var data_IVvsTime_scope = [trace_scope_current];
-        var textboxContent = document.getElementById("dataTextbox").innerHTML;
-        textboxContent += m_time_point/1000 + " ,  " + m_current_point + ", " + m_voltage_point + "\n";
-        document.getElementById("dataTextbox").innerHTML = textboxContent;
+
+
+        var textboxContent1 = m_time_point/1000 + " ,  " + m_current_point + ", " + m_voltage_point + "\n";
+         if(textboxContent1 === textboxContent2) {return;} // do not add duplicate points to textbox
+         else{
+        var textboxContent_temp = document.getElementById("dataTextbox").value;
+        document.getElementById("dataTextbox").value = textboxContent_temp + textboxContent1;
+        textboxContent2 = textboxContent1;
+         }
 
         Plotly.newPlot('plotly-scope-2yaxis', data_IVvsTime_scope, m_2yaxis_layout, { scrollZoom: true, editable: true, responsive: true });
         total_number_of_points_recieved_so_far++;
