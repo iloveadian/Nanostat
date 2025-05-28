@@ -211,9 +211,9 @@
     <h2>Scope display</h2>
     <div id="plotly-scope-2yaxis"></div>
  <textarea id="dataTextbox" rows="10" cols="50">
-      时间(s), 电流(μA), 电压(mV)
+      Time(s), Current(μA), Voltage(mV)
       </textarea>
-        <div id="saveButton">保存文件</div>
+        <div id="saveButton">Save Data</div>
   </div>
 
     <!-- Page footer -->
@@ -231,25 +231,25 @@
   <!-- Control panel JS -->
   <script type="text/javascript" src="websckt_ctl_pan_LMP91000.js"></script>
  <script>
-    // 获取文本框和按钮元素
+    // Get the textbox and button elements
     var dataTextbox = document.getElementById("dataTextbox");
     var saveButton = document.getElementById("saveButton");
 
-    // 添加按钮点击事件监听器
+    // Add a click event listener to the button
     saveButton.addEventListener("click", function() {
-        // 获取文本框的内容
         var data = dataTextbox.value;
-        // 创建Blob对象
+        // Get the content of the textbox
         var blob = new Blob([data], { type: 'text/plain;charset=utf-8' });
-        // 创建链接
+        // Create a Blob object
         var url = URL.createObjectURL(blob);
-        // 创建下载链接
+        // Create an object URL
         var link = document.createElement('a');
         link.href = url;
         link.download = 'data.txt';
-        // 模拟点击下载链接
+        // Set the download file name
+        // Simulate clicking the download link
         link.click();
-        // 释放对象URL
+        // Revoke the object URL
         URL.revokeObjectURL(url);
     });
 </script>
